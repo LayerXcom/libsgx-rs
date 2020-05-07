@@ -1,7 +1,8 @@
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
-}
+#![no_std]
+
+#[macro_use]
+extern crate sgx_tstd as std;
+
+mod cert;
+mod report;
+mod client;
