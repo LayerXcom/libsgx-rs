@@ -6,7 +6,10 @@ use crate::{
     into_url::IntoUrl,
 };
 use anyhow::Result;
-use http::Method;
+use http::{
+    Method,
+    header::{HeaderMap, HeaderValue, ACCEPT},
+};
 
 #[derive(Clone)]
 pub struct Client {
@@ -36,6 +39,7 @@ impl Client {
     }
 
     pub fn execute(&self, req: Request) -> Result<Response> {
+
         unimplemented!();
     }
 }
@@ -47,7 +51,15 @@ pub struct ClientBuilder {
 
 impl ClientBuilder {
     pub fn new() -> Self {
-        unimplemented!();
+        let mut headers: HeaderMap<HeaderValue> = HeaderMap::with_capacity(2);
+        headers.insert(ACCEPT, HeaderValue::from_static("*/*"));
+
+        ClientBuilder {
+            config: Config {
+                config: rustls::ClientConfig::default(),
+                headers,
+            }
+        }
     }
 
     pub fn build(self) -> Result<Client> {
@@ -59,6 +71,7 @@ impl ClientBuilder {
 
 struct Config {
     config: rustls::ClientConfig,
+    headers: HeaderMap, // default headers
 }
 
 

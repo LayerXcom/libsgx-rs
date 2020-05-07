@@ -3,10 +3,16 @@ use crate::std::{
     time::Duration,
     convert::TryFrom,
 };
-use crate::client::Client;
-use crate::response::Response;
-use http::{Method, header::{HeaderMap, HeaderName, HeaderValue}};
+use crate::{
+    client::Client,
+    response::Response,
+};
+use http::{
+    Method,
+    header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE},
+};
 use url::Url;
+use serde::Serialize;
 use anyhow::Result;
 
 pub struct Request {
@@ -104,6 +110,7 @@ impl RequestBuilder {
         RequestBuilder { client, request }
     }
 
+    /// Add a `Header` to this Request.
     pub fn header<K, V>(mut self, key: K, value: V) -> Self
     where
         HeaderName: TryFrom<K>,
@@ -129,8 +136,24 @@ impl RequestBuilder {
         self
     }
 
-    pub fn body(mut self) -> Self {
-        unimplemented!();
+    /// Sets the body to the JSON serialization of the passed value, and
+    /// also sets the `Content-Type: application/json` header.
+    pub fn json<T: Serialize + ?Sized>(mut self, json: &T) -> Self {
+        let mut error = None;
+        if let Ok(ref mut req) = self.request {
+            match serde_json::to_vec(json) {
+                Ok(body) => {
+                    req.headers_mut()
+                        .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+                    *req.body_mut() = Some(body.into());
+                }
+                Err(err) => error = Some(err),
+            }
+        }
+        if let Some(err) = error {
+            self.request = Err(err.into());
+        }
+        self
     }
 
     pub fn send(self) -> Result<Response> {

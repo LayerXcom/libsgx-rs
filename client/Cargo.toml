@@ -7,9 +7,9 @@ edition = "2018"
 [dependencies]
 anyhow = { rev = "sgx_1.1.2", git = "https://github.com/mesalock-linux/anyhow-sgx.git" }
 webpki = { rev = "sgx_1.1.2", git = "https://github.com/mesalock-linux/webpki" }
-sgx_tstd = { rev = "v1.1.2", git = "https://github.com/apache/teaclave-sgx-sdk.git", features = ["net"] }
 rustls = { rev = "sgx_1.1.2", git = "https://github.com/mesalock-linux/rustls" }
 http = { rev = "sgx_1.1.2", git = "https://github.com/mesalock-linux/http-sgx" }
 serde_json = { rev = "sgx_1.1.2", git = "https://github.com/mesalock-linux/serde-json-sgx" }
-serde = { rev = "sgx_1.1.2", git = "https://github.com/mesalock-linux/serde-sgx.git" }
+serde = { git = "https://github.com/mesalock-linux/serde-sgx.git" } # Don't specify version due to serde_json dependency
 url = { rev = "sgx_1.1.2", git = "https://github.com/mesalock-linux/rust-url-sgx" }
+sgx_tstd = { rev = "v1.1.2", git = "https://github.com/apache/teaclave-sgx-sdk.git", features = ["net"] }
