@@ -1,10 +1,11 @@
 use crate::std::{
     vec::Vec,
     time::Duration,
+    convert::TryFrom,
 };
 use crate::client::Client;
 use crate::response::Response;
-use http::{Method, header::HeaderMap};
+use http::{Method, header::{HeaderMap, HeaderName, HeaderValue}};
 use url::Url;
 use anyhow::Result;
 
@@ -14,12 +15,6 @@ pub struct Request {
     headers: HeaderMap,
     body: Option<Vec<u8>>,
     timeout: Option<Duration>,
-}
-
-/// A builder to construct the properties of a `Request`.
-pub struct RequestBuilder {
-    client: Client,
-    request: Result<Request>,
 }
 
 impl Request {
@@ -96,14 +91,42 @@ impl Request {
     }
 }
 
+/// A builder to construct the properties of a `Request`.
+pub struct RequestBuilder {
+    client: Client,
+    request: Result<Request>,
+
+}
+
 impl RequestBuilder {
     pub(crate) fn new(client: Client, request: Result<Request>) -> Self {
         // TODO: Add configuration of basic auth
         RequestBuilder { client, request }
     }
 
-    pub fn header(mut self, ) -> Self {
-        unimplemented!();
+    pub fn header<K, V>(mut self, key: K, value: V) -> Self
+    where
+        HeaderName: TryFrom<K>,
+        HeaderValue: TryFrom<V>,
+        <HeaderName as TryFrom<K>>::Error: Into<http::Error>,
+        <HeaderValue as TryFrom<V>>::Error: Into<http::Error>,
+    {
+        let mut error = None;
+        if let Ok(ref mut req) = self.request {
+            match <HeaderName as TryFrom<K>>::try_from(key) {
+                Ok(key) => match <HeaderValue as TryFrom<V>>::try_from(value) {
+                    Ok(value) => {
+                        req.headers_mut().append(key, value);
+                    }
+                    Err(e) => error = Some(e.into()),
+                },
+                Err(e) => error = Some(e.into()),
+            };
+        }
+        if let Some(err) = error {
+            self.request = Err(err.into());
+        }
+        self
     }
 
     pub fn body(mut self) -> Self {

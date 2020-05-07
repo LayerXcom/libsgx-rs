@@ -13,17 +13,13 @@ pub struct Client {
 
 }
 
-pub struct ClientBuilder {
-
-}
-
 impl Client {
     pub fn new() -> Client {
-        unimplemented!();
+        ClientBuilder::new().build().expect("Client::new()")
     }
 
     pub fn builder() -> ClientBuilder {
-        unimplemented!();
+        ClientBuilder::new()
     }
 
     pub fn request<U: IntoUrl>(&self, method: Method, url: U) -> RequestBuilder {
@@ -42,6 +38,27 @@ impl Client {
     pub fn execute(&self, req: Request) -> Result<Response> {
         unimplemented!();
     }
+}
+
+/// A `ClientBuilder` can be used to create a `Client` with  custom configuration.
+pub struct ClientBuilder {
+    config: Config,
+}
+
+impl ClientBuilder {
+    pub fn new() -> Self {
+        unimplemented!();
+    }
+
+    pub fn build(self) -> Result<Client> {
+        let config = self.config;
+
+        unimplemented!();
+    }
+}
+
+struct Config {
+    config: rustls::ClientConfig,
 }
 
 
