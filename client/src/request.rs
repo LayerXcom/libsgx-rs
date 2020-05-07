@@ -3,6 +3,7 @@ use crate::std::{
     time::Duration,
 };
 use crate::client::Client;
+use crate::response::Response;
 use http::{Method, header::HeaderMap};
 use url::Url;
 use anyhow::Result;
@@ -92,5 +93,24 @@ impl Request {
     #[inline]
     pub fn timeout_mut(&mut self) -> &mut Option<Duration> {
         &mut self.timeout
+    }
+}
+
+impl RequestBuilder {
+    pub(crate) fn new(client: Client, request: Result<Request>) -> Self {
+        // TODO: Add configuration of basic auth
+        RequestBuilder { client, request }
+    }
+
+    pub fn header(mut self, ) -> Self {
+        unimplemented!();
+    }
+
+    pub fn body(mut self) -> Self {
+        unimplemented!();
+    }
+
+    pub fn send(self) -> Result<Response> {
+        self.client.execute(self.request?)
     }
 }

@@ -1,10 +1,14 @@
 use crate::std::vec::Vec;
-use crate::transport::{Message, TlsTransport};
-use crate::request::RequestBuilder;
-use crate::into_url::IntoUrl;
+use crate::{
+    transport::{Message, TlsTransport},
+    request::{RequestBuilder, Request},
+    response::Response,
+    into_url::IntoUrl,
+};
 use anyhow::Result;
 use http::Method;
 
+#[derive(Clone)]
 pub struct Client {
 
 }
@@ -23,7 +27,8 @@ impl Client {
     }
 
     pub fn request<U: IntoUrl>(&self, method: Method, url: U) -> RequestBuilder {
-        unimplemented!();
+        let req = url.into_url().map(move |url| Request::new(method, url));
+        RequestBuilder::new(self.clone(), req)
     }
 
     pub fn get<U: IntoUrl>(&self, url: U) -> RequestBuilder {
@@ -32,6 +37,10 @@ impl Client {
 
     pub fn post<U: IntoUrl>(&self, url: U) -> RequestBuilder {
         self.request(Method::POST, url)
+    }
+
+    pub fn execute(&self, req: Request) -> Result<Response> {
+        unimplemented!();
     }
 }
 
