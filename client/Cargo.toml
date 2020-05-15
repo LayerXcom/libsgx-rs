@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 anyhow = { rev = "sgx_1.1.2", git = "https://github.com/mesalock-linux/anyhow-sgx.git" }
-webpki = { rev = "sgx_1.1.2", git = "https://github.com/mesalock-linux/webpki" }
+webpki = { branch = "mesalock_sgx", git = "https://github.com/mesalock-linux/webpki" } # Specify branch name due to rustls dependency
 rustls = { rev = "sgx_1.1.2", git = "https://github.com/mesalock-linux/rustls" }
 http = { rev = "sgx_1.1.2", git = "https://github.com/mesalock-linux/http-sgx" }
 serde_json = { rev = "sgx_1.1.2", git = "https://github.com/mesalock-linux/serde-json-sgx" }

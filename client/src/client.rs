@@ -1,11 +1,16 @@
-use crate::std::vec::Vec;
+use crate::std::{
+    vec::Vec,
+    sync::Arc,
+    net::TcpStream,
+    string::ToString,
+};
 use crate::{
     transport::{Message, TlsTransport},
     request::{RequestBuilder, Request},
     response::Response,
     into_url::IntoUrl,
 };
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use http::{
     Method,
     header::{HeaderMap, HeaderValue, ACCEPT},
@@ -13,17 +18,25 @@ use http::{
 
 #[derive(Clone)]
 pub struct Client {
-
+    config: Config,
 }
 
 impl Client {
     pub fn new() -> Client {
-        ClientBuilder::new().build().expect("Client::new()")
+        let mut headers: HeaderMap<HeaderValue> = HeaderMap::with_capacity(2);
+        headers.insert(ACCEPT, HeaderValue::from_static("*/*"));
+
+        Client {
+            config: Config {
+                tls_config: rustls::ClientConfig::default(),
+                headers,
+            }
+        }
     }
 
-    pub fn builder() -> ClientBuilder {
-        ClientBuilder::new()
-    }
+    // pub fn builder() -> ClientBuilder {
+    //     ClientBuilder::new()
+    // }
 
     pub fn request<U: IntoUrl>(&self, method: Method, url: U) -> RequestBuilder {
         let req = url.into_url().map(move |url| Request::new(method, url));
@@ -39,38 +52,29 @@ impl Client {
     }
 
     pub fn execute(&self, req: Request) -> Result<Response> {
+        use webpki::DNSNameRef;
+
+        let url = req.url();
+        let host = url.host().ok_or(anyhow!("no host in url"))?.to_string();
+        let dnsname = DNSNameRef::try_from_ascii_str(&host)?;
+        let sess = rustls::ClientSession::new(&self.config_arc(), dnsname);
+        let stream = TcpStream::connect(url.as_str())?;
+        let tls_stream = rustls::StreamOwned::new(sess, stream);
+        let mut transport = TlsTransport::new(tls_stream);
+
+        let response = transport.send(&req.into_url())?;
 
         unimplemented!();
     }
-}
 
-/// A `ClientBuilder` can be used to create a `Client` with  custom configuration.
-pub struct ClientBuilder {
-    config: Config,
-}
-
-impl ClientBuilder {
-    pub fn new() -> Self {
-        let mut headers: HeaderMap<HeaderValue> = HeaderMap::with_capacity(2);
-        headers.insert(ACCEPT, HeaderValue::from_static("*/*"));
-
-        ClientBuilder {
-            config: Config {
-                config: rustls::ClientConfig::default(),
-                headers,
-            }
-        }
-    }
-
-    pub fn build(self) -> Result<Client> {
-        let config = self.config;
-
-        unimplemented!();
+    pub fn config_arc(&self) -> Arc<rustls::ClientConfig> {
+        Arc::new(self.config.tls_config.clone())
     }
 }
 
+#[derive(Clone)]
 struct Config {
-    config: rustls::ClientConfig,
+    tls_config: rustls::ClientConfig,
     headers: HeaderMap, // default headers
 }
 
