@@ -1,0 +1,95 @@
+enclave {
+    from "sgx_backtrace.edl" import *;
+    from "sgx_tstd.edl" import *;
+    from "sgx_stdio.edl" import *;
+    from "sgx_fs.edl" import *;
+    from "sgx_net.edl" import *;
+    from "sgx_time.edl" import *;
+    from "sgx_tstdc.edl" import *;
+    from "sgx_pipe.edl" import *;
+    from "sgx_env.edl" import *;
+
+    include "sgx_quote.h"
+    include "anonify-types.h"
+
+    trusted {
+        public sgx_status_t ecall_insert_ciphertexts(
+            [in] uint8_t contract_addr[20],
+            uint64_t block_number,
+            [in, count=ciphertexts_len] uint8_t *ciphertexts,
+            size_t ciphertexts_len
+        );
+
+        public sgx_status_t ecall_insert_handshake(
+            [in, count=handshake_len] uint8_t *handshake,
+            size_t handshake_len
+        );
+
+        public sgx_status_t ecall_get_state(
+            [in] uint8_t sig[64],
+            [in] uint8_t pubkey[32],
+            [in] uint8_t challenge[32],
+            uint32_t mem_id,
+            [out] EnclaveState* state
+        );
+
+        public sgx_status_t ecall_state_transition(
+            [in] uint8_t sig[64],
+            [in] uint8_t pubkey[32],
+            [in] uint8_t challenge[32],
+            [in, count=state_len] uint8_t *state,
+            size_t state_len,
+            uint64_t state_id,
+            uint32_t call_id,
+            [out] RawStateTransTx* result
+        );
+
+        public sgx_status_t ecall_register(
+            [out] RawRegisterTx* result
+        );
+
+        public sgx_status_t ecall_handshake(
+            [out] RawHandshakeTx* result
+        );
+
+        public void ecall_run_tests(
+            [in] const RawPointer* ext_ptr,
+            [out] ResultStatus* result
+        );
+    };
+
+    untrusted {
+        sgx_status_t ocall_sgx_init_quote(
+            [out] sgx_target_info_t *ret_ti,
+            [out] sgx_epid_group_id_t *ret_gid
+        );
+
+        sgx_status_t ocall_get_quote(
+            [in, size = sigrl_len] const uint8_t *p_sigrl,
+            uint32_t sigrl_len,
+            [in] const sgx_report_t *report,
+            sgx_quote_sign_type_t quote_type,
+            [in] const sgx_spid_t *p_spid,
+            [in] const sgx_quote_nonce_t *p_nonce,
+            [out] sgx_report_t *p_qe_report,
+            [out, size = maxlen] sgx_quote_t *p_quote,
+            uint32_t maxlen,
+            [out] uint32_t* p_quote_len
+        );
+
+        sgx_status_t ocall_get_ias_socket(
+            [out] int *ret_fd
+        );
+
+        uint64_t ocall_save_to_memory(
+            [in, count=data_len] const uint8_t* data_ptr,
+            size_t data_len
+        );
+
+        sgx_status_t ocall_get_update_info(
+            [in] sgx_platform_info_t * platformBlob,
+			int32_t enclaveTrusted,
+			[out] sgx_update_info_bit_t * update_info
+        );
+    };
+};
