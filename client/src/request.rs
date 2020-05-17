@@ -10,7 +10,7 @@ use crate::{
 };
 use http::{
     Method,
-    header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE, CONTENT_LENGTH},
+    header::{HeaderMap, HeaderName, HeaderValue, ACCEPT, CONTENT_TYPE, CONTENT_LENGTH},
 };
 use url::Url;
 use serde::Serialize;
@@ -27,12 +27,14 @@ pub struct Request {
 
 impl Request {
     /// Constructs a new request.
-    #[inline]
     pub fn new(method: Method, url: Url) -> Self {
+        let mut headers: HeaderMap<HeaderValue> = HeaderMap::new();
+        headers.insert(ACCEPT, HeaderValue::from_static("*/*"));
+
         Request {
             method,
             url,
-            headers: HeaderMap::new(),
+            headers,
             body: None,
             timeout: None,
         }

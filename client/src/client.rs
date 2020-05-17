@@ -23,13 +23,9 @@ pub struct Client {
 
 impl Client {
     pub fn new() -> Client {
-        let mut headers: HeaderMap<HeaderValue> = HeaderMap::with_capacity(2);
-        headers.insert(ACCEPT, HeaderValue::from_static("*/*"));
-
         Client {
             config: Config {
                 tls_config: rustls::ClientConfig::default(),
-                headers,
             }
         }
     }
@@ -64,7 +60,7 @@ impl Client {
 
         let response = transport.send(&req.into_url())?;
 
-        unimplemented!();
+        Ok(Response { inner: response })
     }
 
     pub fn config_arc(&self) -> Arc<rustls::ClientConfig> {
@@ -75,7 +71,6 @@ impl Client {
 #[derive(Clone)]
 struct Config {
     tls_config: rustls::ClientConfig,
-    headers: HeaderMap, // default headers
 }
 
 
