@@ -2,5 +2,5 @@
 members = [
     "attestation",
     "dcap",
-    "tls",
+    "client",
 ]
