@@ -4,10 +4,11 @@ use std::{
     str,
     time::SystemTime,
     untrusted::time::SystemTimeEx,
-    io::BufReader,
+    io::{BufReader, Write},
+    collections::HashMap,
 };
 use http_req::{request::Request, uri::Uri, response::{Headers, Response}};
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 
 pub const IAS_URL: &str = "https://api.trustedservices.intel.com/sgx/dev/attestation/v3/report";
 // pub const DEV_HOSTNAME : &str = "api.trustedservices.intel.com";
@@ -31,17 +32,17 @@ static SUPPORTED_SIG_ALGS: SignatureAlgorithms = &[
     &webpki::RSA_PKCS1_3072_8192_SHA384,
 ];
 
-pub struct RAClient {
-    request: Request,
+pub struct RAClient<'a> {
+    request: Request<'a>,
 }
 
-impl RAClient {
+impl RAClient<'_> {
     pub fn new(uri: &str) -> Self {
         let uri: Uri = uri.parse().expect("Invalid uri");
-        Request::new(&uri)
+        RAClient{ request: Request::new(&uri) }
     }
 
-    pub fn headers(&mut self, ias_api_key: &str) -> &mut Self {
+    pub fn ias_apikey_header_mut(&mut self, ias_api_key: &str) -> &mut Self {
         let mut headers = Headers::new();
         headers.insert("Ocp-Apim-Subscription-Key", ias_api_key);
         headers.insert("Connection", "close");
@@ -50,44 +51,61 @@ impl RAClient {
         self
     }
 
-    pub fn json(&mut self) -> &mut Self {
+    /// Sets the body to the JSON serialization of the passed value, and
+    /// also sets the `Content-Type: application/json` header.
+    pub fn quote_body_mut(&mut self, quote: &str) -> &mut Self {
+        let mut json = HashMap::new();
+        json.insert("isvEnclaveQuote", quote);
 
+        match serde_json::to_vec(&json) {
+            Ok(body) => {
+                let len = body.len().to_string();
+                self.request.header("Content-Type", "application/json");
+                self.request.header("Content-Length", &len);
+                self.request.body(&body);
+            }
+            Err(err) => panic!("Invalid json."), // TODO
+        }
+
+        self
     }
 
     pub fn send<T: Write>(&self, writer: &mut T) -> Result<Response> {
-        self.request.send(&mut writer).map(Into::into);
+        self.request.send(writer)
+            .map_err(|e| anyhow!("{:?}", e))
+            .map_err(Into::into)
     }
 
-    pub fn report_and_sig(&self, quote: &str, ias_api_key: &str) -> Result<(Vec<u8>, Vec<u8>)> {
-        let req = self.raw_report_req(quote, ias_api_key);
-        let res = self.send_raw_req(req)?;
+    // pub fn report_and_sig(&self, quote: &str, ias_api_key: &str) -> Result<(Vec<u8>, Vec<u8>)> {
+    //     let req = self.raw_report_req(quote, ias_api_key);
+    //     let res = self.send_raw_req(req)?;
 
-        res.verify_sig_cert()?;
+    //     res.verify_sig_cert()?;
 
-        Ok((res.body.0, res.sig.0)) // TODO
-    }
+    //     Ok((res.body.0, res.sig.0)) // TODO
+    // }
 
-    pub fn report_and_sig_new(&self, quote: &str, ias_api_key: &str) -> Result<(Report, ReportSig)> {
-        let req = self.raw_report_req(quote, ias_api_key);
-        let res = self.send_raw_req(req)?;
+    // pub fn report_and_sig_new(&self, quote: &str, ias_api_key: &str) -> Result<(Report, ReportSig)> {
+    //     let req = self.raw_report_req(quote, ias_api_key);
+    //     let res = self.send_raw_req(req)?;
 
-        res.verify_sig_cert()?;
+    //     res.verify_sig_cert()?;
 
-        Ok((res.body, res.sig))
-    }
+    //     Ok((res.body, res.sig))
+    // }
 
-    fn raw_report_req(&self, quote: &str, ias_api_key: &str) -> String {
+    // fn raw_report_req(&self, quote: &str, ias_api_key: &str) -> String {
 
 
-        let encoded_json = format!("{{\"isvEnclaveQuote\":\"{}\"}}\r\n", quote);
-        format!("POST {} HTTP/1.1\r\nHOST: {}\r\nOcp-Apim-Subscription-Key:{}\r\nContent-Length:{}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{}",
-            &self.path,
-            &self.host,
-            ias_api_key,
-            encoded_json.len(),
-            encoded_json
-        )
-    }
+    //     let encoded_json = format!("{{\"isvEnclaveQuote\":\"{}\"}}\r\n", quote);
+    //     format!("POST {} HTTP/1.1\r\nHOST: {}\r\nOcp-Apim-Subscription-Key:{}\r\nContent-Length:{}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{}",
+    //         &self.path,
+    //         &self.host,
+    //         ias_api_key,
+    //         encoded_json.len(),
+    //         encoded_json
+    //     )
+    // }
 
     // fn send_raw_req(&self, req: String) -> Result<Response> {
     //     let fd = get_ias_socket()?;
@@ -134,72 +152,90 @@ impl ReportSig {
 }
 
 #[derive(Debug, Clone)]
-pub struct Response {
+pub struct RAResponse {
     body: Report,
     sig: ReportSig,
     cert: Vec<u8>,
 }
 
-impl Response {
-    pub fn parse(resp : &[u8]) -> Result<Self> {
-        let mut headers = [httparse::EMPTY_HEADER; 16];
-        let mut respp   = httparse::Response::new(&mut headers);
-        let result = respp.parse(resp);
+impl RAResponse {
+    pub fn from_response(body: Vec<u8>, resp: Response) -> Result<Self> {
+        let headers = resp.headers();
+        let sig = headers.get("X-IASReport-Signature")
+            .ok_or(anyhow!("Not found X-IASReport-Signature header"))?;
+        let sig = ReportSig::base64_decode(sig.as_bytes())?;
 
-        let msg : &'static str;
+        let cert = headers.get("X-IASReport-Signing-Certificate")
+            .ok_or(anyhow!("Not found X-IASReport-Signing-Certificate"))?
+            .replace("%0A", "");
+        let cert = percent_decode(cert)?;
 
-        match respp.code {
-            Some(200) => msg = "OK Operation Successful",
-            Some(401) => msg = "Unauthorized Failed to authenticate or authorize request.",
-            Some(404) => msg = "Not Found GID does not refer to a valid EPID group ID.",
-            Some(500) => msg = "Internal error occurred",
-            Some(503) => msg = "Service is currently not able to process the request (due to
-                a temporary overloading or maintenance). This is a
-                temporary state – the same request can be repeated after
-                some time. ",
-            _ => {println!("DBG:{}", respp.code.unwrap()); msg = "Unknown error occurred"},
-        }
-
-        println!("    [Enclave] msg = {}", msg);
-        let mut len_num : u32 = 0;
-
-        let mut sig = ReportSig::default();
-        let mut cert_str = String::new();
-        let mut body = Report::default();
-
-        for i in 0..respp.headers.len() {
-            let h = respp.headers[i];
-            match h.name{
-                "Content-Length" => {
-                    let len_str = String::from_utf8(h.value.to_vec()).unwrap();
-                    len_num = len_str.parse::<u32>().unwrap();
-                }
-                "X-IASReport-Signature" => sig = ReportSig::base64_decode(h.value)?,
-                "X-IASReport-Signing-Certificate" => cert_str = String::from_utf8(h.value.to_vec()).unwrap(),
-                _ => (),
-            }
-        }
-
-        // Remove %0A from cert, and only obtain the signing cert
-        cert_str = cert_str.replace("%0A", "");
-        cert_str = percent_decode(cert_str);
-        let v: Vec<&str> = cert_str.split("-----").collect();
-        let cert = base64::decode(v[2])?;
-
-        // This root_cert is equal to AttestationReportSigningCACert.pem
-        // let root_cert = v[6].to_string();
-
-        if len_num != 0 {
-            let header_len = result.unwrap().unwrap();
-            body = Report::new(resp[header_len..].to_vec());
-        }
-
-        Ok(Response {
-            body,
+        Ok(RAResponse {
+            body: Report::new(body),
             sig,
             cert,
         })
     }
+
+    // pub fn parse(resp : &[u8]) -> Result<Self> {
+    //     let mut headers = [httparse::EMPTY_HEADER; 16];
+    //     let mut respp   = httparse::Response::new(&mut headers);
+    //     let result = respp.parse(resp);
+
+    //     let msg : &'static str;
+
+    //     match respp.code {
+    //         Some(200) => msg = "OK Operation Successful",
+    //         Some(401) => msg = "Unauthorized Failed to authenticate or authorize request.",
+    //         Some(404) => msg = "Not Found GID does not refer to a valid EPID group ID.",
+    //         Some(500) => msg = "Internal error occurred",
+    //         Some(503) => msg = "Service is currently not able to process the request (due to
+    //             a temporary overloading or maintenance). This is a
+    //             temporary state – the same request can be repeated after
+    //             some time. ",
+    //         _ => {println!("DBG:{}", respp.code.unwrap()); msg = "Unknown error occurred"},
+    //     }
+
+    //     println!("    [Enclave] msg = {}", msg);
+    //     let mut len_num : u32 = 0;
+
+    //     let mut sig = ReportSig::default();
+    //     let mut cert_str = String::new();
+    //     let mut body = Report::default();
+
+    //     for i in 0..respp.headers.len() {
+    //         let h = respp.headers[i];
+    //         match h.name{
+    //             "Content-Length" => {
+    //                 let len_str = String::from_utf8(h.value.to_vec()).unwrap();
+    //                 len_num = len_str.parse::<u32>().unwrap();
+    //             }
+    //             "X-IASReport-Signature" => sig = ReportSig::base64_decode(h.value)?,
+    //             "X-IASReport-Signing-Certificate" => cert_str = String::from_utf8(h.value.to_vec()).unwrap(),
+    //             _ => (),
+    //         }
+    //     }
+
+    //     // Remove %0A from cert, and only obtain the signing cert
+    //     cert_str = cert_str.replace("%0A", "");
+    //     cert_str = percent_decode(cert_str);
+    //     let v: Vec<&str> = cert_str.split("-----").collect();
+    //     let cert = base64::decode(v[2])?;
+
+    //     // This root_cert is equal to AttestationReportSigningCACert.pem
+    //     // let root_cert = v[6].to_string();
+
+    //     if len_num != 0 {
+    //         let header_len = result.unwrap().unwrap();
+    //         body = Report::new(resp[header_len..].to_vec());
+    //     }
+
+    //     Ok(Response {
+    //         body,
+    //         sig,
+    //         cert,
+    //     })
+    // }
 
     fn verify_sig_cert(&self) -> Result<()> {
         let now_func = webpki::Time::try_from(SystemTime::now())?;
@@ -262,7 +298,7 @@ impl Response {
     }
 }
 
-fn percent_decode(orig: String) -> String {
+fn percent_decode(orig: String) -> Result<Vec<u8>> {
     let v:Vec<&str> = orig.split('%').collect();
     let mut ret = String::new();
     ret.push_str(v[0]);
@@ -272,5 +308,6 @@ fn percent_decode(orig: String) -> String {
             ret.push_str(&s[2..]);
         }
     }
-    ret
+    let v: Vec<&str> = ret.split("-----").collect();
+    base64::decode(v[2]).map_err(Into::into)
 }
