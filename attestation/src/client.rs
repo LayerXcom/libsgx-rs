@@ -32,13 +32,35 @@ static SUPPORTED_SIG_ALGS: SignatureAlgorithms = &[
     &webpki::RSA_PKCS1_3072_8192_SHA384,
 ];
 
+pub struct RAService;
+
+impl RAService {
+    pub fn remote_attestation(
+        uri: &str,
+        ias_api_key: &str,
+        quote: &str,
+    ) -> Result<RAResponse> {
+        let uri: Uri = uri.parse().expect("Invalid uri");
+        let mut json = HashMap::new();
+        json.insert("isvEnclaveQuote", quote);
+        let body = serde_json::to_vec(&json)?;
+        let mut writer = Vec::new();
+
+        let response = RAClient::new(&uri)
+            .ias_apikey_header_mut(ias_api_key)
+            .quote_body_mut(&body)
+            .send(&mut writer)?;
+
+        RAResponse::from_response(writer, response)
+    }
+}
+
 pub struct RAClient<'a> {
     request: Request<'a>,
 }
 
-impl RAClient<'_> {
-    pub fn new(uri: &str) -> Self {
-        let uri: Uri = uri.parse().expect("Invalid uri");
+impl<'a> RAClient<'a> {
+    pub fn new(uri: &'a Uri) -> Self {
         RAClient{ request: Request::new(&uri) }
     }
 
@@ -46,26 +68,18 @@ impl RAClient<'_> {
         let mut headers = Headers::new();
         headers.insert("Ocp-Apim-Subscription-Key", ias_api_key);
         headers.insert("Connection", "close");
-
         self.request.headers(headers);
+
         self
     }
 
     /// Sets the body to the JSON serialization of the passed value, and
     /// also sets the `Content-Type: application/json` header.
-    pub fn quote_body_mut(&mut self, quote: &str) -> &mut Self {
-        let mut json = HashMap::new();
-        json.insert("isvEnclaveQuote", quote);
-
-        match serde_json::to_vec(&json) {
-            Ok(body) => {
-                let len = body.len().to_string();
-                self.request.header("Content-Type", "application/json");
-                self.request.header("Content-Length", &len);
-                self.request.body(&body);
-            }
-            Err(err) => panic!("Invalid json."), // TODO
-        }
+    pub fn quote_body_mut(&'a mut self, body: &'a [u8]) -> &mut Self {
+        let len = body.len().to_string();
+        self.request.header("Content-Type", "application/json");
+        self.request.header("Content-Length", &len);
+        self.request.body(&body);
 
         self
     }
@@ -160,6 +174,8 @@ pub struct RAResponse {
 
 impl RAResponse {
     pub fn from_response(body: Vec<u8>, resp: Response) -> Result<Self> {
+        // TODO: ADD status_code verifications
+
         let headers = resp.headers();
         let sig = headers.get("X-IASReport-Signature")
             .ok_or(anyhow!("Not found X-IASReport-Signature header"))?;
