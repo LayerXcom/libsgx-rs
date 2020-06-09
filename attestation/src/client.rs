@@ -7,7 +7,7 @@ use std::{
     io::{BufReader, Write},
     collections::HashMap,
 };
-use http_req::{request::Request, uri::Uri, response::{Headers, Response}};
+use http_req::{request::{Request, Method}, uri::Uri, response::{Headers, Response}};
 use anyhow::{Result, anyhow};
 
 pub const IAS_URL: &str = "https://api.trustedservices.intel.com/sgx/dev/attestation/v3/report";
@@ -41,14 +41,12 @@ impl RAService {
         quote: &str,
     ) -> Result<(Report, ReportSig)> {
         let uri: Uri = uri.parse().expect("Invalid uri");
-        let mut json = HashMap::new();
-        json.insert("isvEnclaveQuote", quote);
-        let body = serde_json::to_vec(&json)?;
+        let body = format!("{{\"isvEnclaveQuote\":\"{}\"}}\r\n", quote);
         let mut writer = Vec::new();
 
         let response = RAClient::new(&uri)
             .ias_apikey_header_mut(ias_api_key)
-            .quote_body_mut(&body)
+            .quote_body_mut(&body.as_bytes())
             .send(&mut writer)?;
 
         let ra_resp = RAResponse::from_response(writer, response)?;
@@ -58,18 +56,26 @@ impl RAService {
 
 pub struct RAClient<'a> {
     request: Request<'a>,
+    host: String,
 }
 
 impl<'a> RAClient<'a> {
     pub fn new(uri: &'a Uri) -> Self {
-        RAClient{ request: Request::new(&uri) }
+        let host = uri.host_header().expect("Not found host in the uri");
+
+        RAClient{
+            request: Request::new(&uri),
+            host,
+        }
     }
 
     pub fn ias_apikey_header_mut(&mut self, ias_api_key: &str) -> &mut Self {
         let mut headers = Headers::new();
+        headers.insert("HOST", &self.host);
         headers.insert("Ocp-Apim-Subscription-Key", ias_api_key);
         headers.insert("Connection", "close");
         self.request.headers(headers);
+        self.request.method(Method::POST);
 
         self
     }
@@ -90,49 +96,6 @@ impl<'a> RAClient<'a> {
             .map_err(|e| anyhow!("{:?}", e))
             .map_err(Into::into)
     }
-
-    // pub fn report_and_sig(&self, quote: &str, ias_api_key: &str) -> Result<(Vec<u8>, Vec<u8>)> {
-    //     let req = self.raw_report_req(quote, ias_api_key);
-    //     let res = self.send_raw_req(req)?;
-
-    //     res.verify_sig_cert()?;
-
-    //     Ok((res.body.0, res.sig.0)) // TODO
-    // }
-
-    // pub fn report_and_sig_new(&self, quote: &str, ias_api_key: &str) -> Result<(Report, ReportSig)> {
-    //     let req = self.raw_report_req(quote, ias_api_key);
-    //     let res = self.send_raw_req(req)?;
-
-    //     res.verify_sig_cert()?;
-
-    //     Ok((res.body, res.sig))
-    // }
-
-    // fn raw_report_req(&self, quote: &str, ias_api_key: &str) -> String {
-
-
-    //     let encoded_json = format!("{{\"isvEnclaveQuote\":\"{}\"}}\r\n", quote);
-    //     format!("POST {} HTTP/1.1\r\nHOST: {}\r\nOcp-Apim-Subscription-Key:{}\r\nContent-Length:{}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{}",
-    //         &self.path,
-    //         &self.host,
-    //         ias_api_key,
-    //         encoded_json.len(),
-    //         encoded_json
-    //     )
-    // }
-
-    // fn send_raw_req(&self, req: String) -> Result<Response> {
-    //     let fd = get_ias_socket()?;
-    //     let mut socket = TcpStream::new(fd)?;
-
-    //     // TODO: Fix to call `HttpsClient` to use non-blocking communications.
-    //     let raw_res = anonify_attestation::get_report_response(&mut socket, req)?;
-    //     // let mut client = HttpsClient::new(socket, &self.host)?;
-    //     // let res = client.send_from_raw_req(&req)?;
-
-    //     Response::parse(&raw_res)
-    // }
 }
 
 #[derive(Debug, Clone, Default)]
