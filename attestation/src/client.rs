@@ -39,7 +39,7 @@ impl RAService {
         uri: &str,
         ias_api_key: &str,
         quote: &str,
-    ) -> Result<RAResponse> {
+    ) -> Result<(Report, ReportSig)> {
         let uri: Uri = uri.parse().expect("Invalid uri");
         let mut json = HashMap::new();
         json.insert("isvEnclaveQuote", quote);
@@ -51,7 +51,8 @@ impl RAService {
             .quote_body_mut(&body)
             .send(&mut writer)?;
 
-        RAResponse::from_response(writer, response)
+        let ra_resp = RAResponse::from_response(writer, response)?;
+        Ok((ra_resp.body, ra_resp.sig))
     }
 }
 
