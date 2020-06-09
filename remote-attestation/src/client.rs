@@ -2,17 +2,16 @@ use std::{
     prelude::v1::*,
     net::TcpStream,
     str,
-    time::SystemTime,
+    time::{SystemTime, UNIX_EPOCH},
     untrusted::time::SystemTimeEx,
     io::{BufReader, Write},
     collections::HashMap,
 };
 use http_req::{request::{Request, Method}, uri::Uri, response::{Headers, Response}};
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail, ensure};
+use serde_json::Value;
+use log::debug;
 
-pub const IAS_URL: &str = "https://api.trustedservices.intel.com/sgx/dev/attestation/v3/report";
-// pub const DEV_HOSTNAME : &str = "api.trustedservices.intel.com";
-// pub const REPORT_PATH : &str = "/sgx/dev/attestation/v3/report";
 pub const TEST_SUB_KEY: &str = "77e2533de0624df28dc3be3a5b9e50d9";
 pub const TEST_SPID: &str = "2C149BFC94A61D306A96211AED155BE9";
 
@@ -49,7 +48,8 @@ impl RAService {
             .quote_body_mut(&body.as_bytes())
             .send(&mut writer)?;
 
-        let ra_resp = RAResponse::from_response(writer, response)?;
+        let ra_resp = RAResponse::from_response(writer, response)?
+            .verify_attestation_report()?;
         Ok((ra_resp.body, ra_resp.sig))
     }
 }
@@ -69,6 +69,7 @@ impl<'a> RAClient<'a> {
         }
     }
 
+    /// Sets IAS API KEY to header.
     pub fn ias_apikey_header_mut(&mut self, ias_api_key: &str) -> &mut Self {
         let mut headers = Headers::new();
         headers.insert("HOST", &self.host);
@@ -98,52 +99,21 @@ impl<'a> RAClient<'a> {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct Report(Vec<u8>);
-
-impl Report {
-    pub fn new(report: Vec<u8>) -> Self {
-        Report(report)
-    }
-
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.0[..]
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct ReportSig(Vec<u8>);
-
-impl ReportSig {
-    pub fn base64_decode(v: &[u8]) -> Result<Self> {
-        let v = base64::decode(v)?;
-        Ok(ReportSig(v))
-    }
-
-    pub fn new(report_sig: Vec<u8>) -> Self {
-        ReportSig(report_sig)
-    }
-
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.0[..]
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct RAResponse {
-    body: Report,
-    sig: ReportSig,
+    attestation_report: AttestationReport,
+    report_sig: ReportSig,
     cert: Vec<u8>,
 }
 
 impl RAResponse {
     pub fn from_response(body: Vec<u8>, resp: Response) -> Result<Self> {
-        // TODO: ADD status_code verifications
+        debug!("RA response: {:?}", resp);
 
         let headers = resp.headers();
         let sig = headers.get("X-IASReport-Signature")
             .ok_or(anyhow!("Not found X-IASReport-Signature header"))?;
-        let sig = ReportSig::base64_decode(sig.as_bytes())?;
+        let report_sig = ReportSig::base64_decode(sig.as_bytes())?;
 
         let cert = headers.get("X-IASReport-Signing-Certificate")
             .ok_or(anyhow!("Not found X-IASReport-Signing-Certificate"))?
@@ -151,73 +121,18 @@ impl RAResponse {
         let cert = percent_decode(cert)?;
 
         Ok(RAResponse {
-            body: Report::new(body),
-            sig,
+            attestation_report: Report::new(body),
+            report_sig,
             cert,
         })
     }
 
-    // pub fn parse(resp : &[u8]) -> Result<Self> {
-    //     let mut headers = [httparse::EMPTY_HEADER; 16];
-    //     let mut respp   = httparse::Response::new(&mut headers);
-    //     let result = respp.parse(resp);
-
-    //     let msg : &'static str;
-
-    //     match respp.code {
-    //         Some(200) => msg = "OK Operation Successful",
-    //         Some(401) => msg = "Unauthorized Failed to authenticate or authorize request.",
-    //         Some(404) => msg = "Not Found GID does not refer to a valid EPID group ID.",
-    //         Some(500) => msg = "Internal error occurred",
-    //         Some(503) => msg = "Service is currently not able to process the request (due to
-    //             a temporary overloading or maintenance). This is a
-    //             temporary state – the same request can be repeated after
-    //             some time. ",
-    //         _ => {println!("DBG:{}", respp.code.unwrap()); msg = "Unknown error occurred"},
-    //     }
-
-    //     println!("    [Enclave] msg = {}", msg);
-    //     let mut len_num : u32 = 0;
-
-    //     let mut sig = ReportSig::default();
-    //     let mut cert_str = String::new();
-    //     let mut body = Report::default();
-
-    //     for i in 0..respp.headers.len() {
-    //         let h = respp.headers[i];
-    //         match h.name{
-    //             "Content-Length" => {
-    //                 let len_str = String::from_utf8(h.value.to_vec()).unwrap();
-    //                 len_num = len_str.parse::<u32>().unwrap();
-    //             }
-    //             "X-IASReport-Signature" => sig = ReportSig::base64_decode(h.value)?,
-    //             "X-IASReport-Signing-Certificate" => cert_str = String::from_utf8(h.value.to_vec()).unwrap(),
-    //             _ => (),
-    //         }
-    //     }
-
-    //     // Remove %0A from cert, and only obtain the signing cert
-    //     cert_str = cert_str.replace("%0A", "");
-    //     cert_str = percent_decode(cert_str);
-    //     let v: Vec<&str> = cert_str.split("-----").collect();
-    //     let cert = base64::decode(v[2])?;
-
-    //     // This root_cert is equal to AttestationReportSigningCACert.pem
-    //     // let root_cert = v[6].to_string();
-
-    //     if len_num != 0 {
-    //         let header_len = result.unwrap().unwrap();
-    //         body = Report::new(resp[header_len..].to_vec());
-    //     }
-
-    //     Ok(Response {
-    //         body,
-    //         sig,
-    //         cert,
-    //     })
-    // }
-
-    fn verify_sig_cert(&self) -> Result<()> {
+    /// Verify that
+    /// 1. TLS server certificate
+    /// 2. report's signature
+    /// 3. report's timestamp
+    /// 4. quote status
+    fn verify_attestation_report(self) -> Result<Self> {
         let now_func = webpki::Time::try_from(SystemTime::now())?;
 
         let mut ca_reader = BufReader::new(&IAS_REPORT_CA[..]);
@@ -245,25 +160,41 @@ impl RAResponse {
 
         sig_cert.verify_signature(
             &webpki::RSA_PKCS1_2048_8192_SHA256,
-            &self.body.0,
-            &self.sig.0,
+            &self.attestation_report.as_bytes(),
+            &self.report_sig.as_bytes(),
         )?;
 
-        Ok(())
+        let attn_report = self.attestation_report.as_json()?;
+        self.verify_timestamp(&attn_report)?;
+        self.verify_quote_status(&attn_report)?;
+
+        Ok(self)
     }
 
-    // fn verify_report(&self) -> Result<()> {
-    //     // timestamp is within 24H (90day is recommended by Intel)
-    //     let attn_report: Value = serde_json::from_slice(attn_report_raw).unwrap();
-    //     if let Value::String(time) = &attn_report["timestamp"] {
-    //         let time_fixed = time.clone() + "+0000";
-    //         let ts = DateTime::parse_from_str(&time_fixed, "%Y-%m-%dT%H:%M:%S%.f%z").unwrap().timestamp();
-    //         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
-    //     } else {
-    //         println!("Failed to fetch timestamp from attestation report");
-    //         return Err(sgx_status_t::SGX_ERROR_UNEXPECTED);
-    //     }
-    // }
+
+    /// Verify report's timestamp is within 24H (90day is recommended by Intel)
+    fn verify_timestamp(&self, attn_report: &Value) -> Result<()> {
+        if let Value::String(time) = &attn_report["timestamp"] {
+            let time_fixed = time.clone() + "+0000";
+            let ts = DateTime::parse_from_str(&time_fixed, "%Y-%m-%dT%H:%M:%S%.f%z").unwrap().timestamp();
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+            ensure!(now - ts > 0, "")
+        } else {
+            bail!("Failed to fetch timestamp from attestation report");
+        }
+    }
+
+    /// Verify the quote status included the attestation report is OK
+    fn verify_quote_status(&self, attn_report: &Value) -> Result<()> {
+        if let Value::String(quote_status) = &attn_report["isvEnclaveQuoteStatus"] {
+            match quote_status.as_ref() {
+                "OK" => Ok(()),
+                _ => bail!("Invalid Enclave Quote Status: {}", quote_status),
+            }
+        } else {
+            bail!("Failed to fetch isvEnclaveQuoteStatus from attestation report");
+        }
+    }
 
     fn decode_ias_report_ca() -> Result<Vec<u8>> {
         let mut ias_ca_stripped = IAS_REPORT_CA.to_vec();
@@ -275,6 +206,41 @@ impl RAResponse {
         let ias_ca_core : &[u8] = &ias_ca_stripped[head_len..full_len - tail_len];
         let ias_cert_dec = base64::decode(ias_ca_core)?;
         Ok(ias_cert_dec)
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Report(Vec<u8>);
+
+impl Report {
+    pub fn new(report: Vec<u8>) -> Self {
+        Report(report)
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0[..]
+    }
+
+    pub fn as_json(&self) -> Result<Value> {
+        serde_json::from_slice(&self.as_bytes()).map_err(Into::into)
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ReportSig(Vec<u8>);
+
+impl ReportSig {
+    pub fn base64_decode(v: &[u8]) -> Result<Self> {
+        let v = base64::decode(v)?;
+        Ok(ReportSig(v))
+    }
+
+    pub fn new(report_sig: Vec<u8>) -> Self {
+        ReportSig(report_sig)
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0[..]
     }
 }
 
