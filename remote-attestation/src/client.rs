@@ -195,6 +195,10 @@ impl RAResponse {
         if let Value::String(quote_status) = &attn_report["isvEnclaveQuoteStatus"] {
             match quote_status.as_ref() {
                 "OK" => Ok(()),
+                "GROUP_OUT_OF_DATE" => {
+                    println!("Enclave Quote Status: GROUP_OUT_OF_DATE");
+                    Ok(())
+                },
                 _ => bail!("Invalid Enclave Quote Status: {}", quote_status),
             }
         } else {
