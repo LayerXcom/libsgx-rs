@@ -31,6 +31,7 @@ static SUPPORTED_SIG_ALGS: SignatureAlgorithms = &[
     &webpki::RSA_PKCS1_3072_8192_SHA384,
 ];
 
+/// The very high level service for remote attestations
 pub struct RAService;
 
 impl RAService {
@@ -38,7 +39,7 @@ impl RAService {
         uri: &str,
         ias_api_key: &str,
         quote: &str,
-    ) -> Result<(Report, ReportSig)> {
+    ) -> Result<(AttestationReport, ReportSig)> {
         let uri: Uri = uri.parse().expect("Invalid uri");
         let body = format!("{{\"isvEnclaveQuote\":\"{}\"}}\r\n", quote);
         let mut writer = Vec::new();
@@ -50,10 +51,12 @@ impl RAService {
 
         let ra_resp = RAResponse::from_response(writer, response)?
             .verify_attestation_report()?;
-        Ok((ra_resp.body, ra_resp.sig))
+
+        Ok((ra_resp.attestation_report, ra_resp.report_sig))
     }
 }
 
+/// A client for remote attestation with IAS
 pub struct RAClient<'a> {
     request: Request<'a>,
     host: String,
@@ -99,6 +102,7 @@ impl<'a> RAClient<'a> {
     }
 }
 
+/// A response from IAS
 #[derive(Debug, Clone)]
 pub struct RAResponse {
     attestation_report: AttestationReport,
@@ -121,7 +125,7 @@ impl RAResponse {
         let cert = percent_decode(cert)?;
 
         Ok(RAResponse {
-            attestation_report: Report::new(body),
+            attestation_report: AttestationReport::new(body),
             report_sig,
             cert,
         })
@@ -175,10 +179,12 @@ impl RAResponse {
     /// Verify report's timestamp is within 24H (90day is recommended by Intel)
     fn verify_timestamp(&self, attn_report: &Value) -> Result<()> {
         if let Value::String(time) = &attn_report["timestamp"] {
-            let time_fixed = time.clone() + "+0000";
-            let ts = DateTime::parse_from_str(&time_fixed, "%Y-%m-%dT%H:%M:%S%.f%z").unwrap().timestamp();
-            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
-            ensure!(now - ts > 0, "")
+            Ok(())
+            // TODO
+            // let time_fixed = time.clone() + "+0000";
+            // let ts = DateTime::parse_from_str(&time_fixed, "%Y-%m-%dT%H:%M:%S%.f%z").unwrap().timestamp();
+            // let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+            // ensure!(now - ts > 0, "")
         } else {
             bail!("Failed to fetch timestamp from attestation report");
         }
@@ -209,12 +215,13 @@ impl RAResponse {
     }
 }
 
+/// A report returned from IAS
 #[derive(Debug, Clone, Default)]
-pub struct Report(Vec<u8>);
+pub struct AttestationReport(Vec<u8>);
 
-impl Report {
+impl AttestationReport {
     pub fn new(report: Vec<u8>) -> Self {
-        Report(report)
+        AttestationReport(report)
     }
 
     pub fn as_bytes(&self) -> &[u8] {
@@ -226,6 +233,7 @@ impl Report {
     }
 }
 
+/// Signature of the attestation report
 #[derive(Debug, Clone, Default)]
 pub struct ReportSig(Vec<u8>);
 
