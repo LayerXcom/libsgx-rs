@@ -258,9 +258,7 @@ impl ReportSig {
 
 fn percent_decode(orig: String) -> Result<Vec<u8>> {
     let v:Vec<&str> = orig.split('%').collect();
-    if v.len() == 0 {
-        bail!("Certificate is blank");
-    }
+    ensure!(v.len() != 0, "Certificate is blank");
     let mut ret = String::new();
     ret.push_str(v[0]);
     if v.len() > 1 {
