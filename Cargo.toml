@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "attestation",
+    "remote-attestation",
     "dcap",
     "client",
 ]

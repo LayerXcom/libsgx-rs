@@ -3,6 +3,6 @@
 #[macro_use]
 extern crate sgx_tstd as std;
 
-mod cert;
-mod report;
 mod client;
+
+pub use crate::client::{RAService, AttestationReport, ReportSig};
