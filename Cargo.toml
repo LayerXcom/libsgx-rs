@@ -3,4 +3,5 @@ members = [
     "remote-attestation",
     "dcap",
     "client",
+    "test-utils",
 ]
