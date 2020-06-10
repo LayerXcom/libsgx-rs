@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 sgx_types = "1.1.1"
+sgx_tse = "1.1.1"
 sgx_tstd = { rev = "v1.1.2", git = "https://github.com/apache/teaclave-sgx-sdk.git", features = ["net"] }
 anyhow = { rev = "sgx_1.1.2", git = "https://github.com/mesalock-linux/anyhow-sgx.git" }
 webpki = { branch = "mesalock_sgx", git = "https://github.com/mesalock-linux/webpki" } # Specify branch name due to rustls dependency
@@ -17,3 +18,4 @@ serde = { git = "https://github.com/mesalock-linux/serde-sgx.git" } # Don't spec
 base64 = { rev = "sgx_1.1.2", git = "https://github.com/mesalock-linux/rust-base64-sgx" }
 rustls = { rev = "sgx_1.1.2", git = "https://github.com/mesalock-linux/rustls" }
 log = { rev = "sgx_1.1.2", git = "https://github.com/mesalock-linux/log-sgx" }
+hex = { rev = "sgx_1.1.2", git = "https://github.com/mesalock-linux/rust-hex-sgx" }

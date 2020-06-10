@@ -1,19 +1,14 @@
 use std::{
     prelude::v1::*,
-    net::TcpStream,
-    str,
     time::{SystemTime, UNIX_EPOCH},
-    untrusted::time::SystemTimeEx,
     io::{BufReader, Write},
-    collections::HashMap,
 };
 use http_req::{request::{Request, Method}, uri::Uri, response::{Headers, Response}};
 use anyhow::{Result, anyhow, bail, ensure};
 use serde_json::Value;
 use log::debug;
-
-pub const TEST_SUB_KEY: &str = "77e2533de0624df28dc3be3a5b9e50d9";
-pub const TEST_SPID: &str = "2C149BFC94A61D306A96211AED155BE9";
+use sgx_types::{sgx_report_data_t, sgx_spid_t};
+use crate::quote::{sgx_init_quote, get_quote};
 
 pub const IAS_REPORT_CA: &[u8] = include_bytes!("../AttestationReportSigningCACert.pem");
 type SignatureAlgorithms = &'static [&'static webpki::SignatureAlgorithm];
@@ -32,16 +27,41 @@ static SUPPORTED_SIG_ALGS: SignatureAlgorithms = &[
 ];
 
 /// The very high level service for remote attestations
-pub struct RAService;
+pub struct RAService {
+    encoded_quote: String,
+}
 
 impl RAService {
+    // spid: Service provider ID for the ISV.
+    /// Generate Base64-encoded QUOTE data structure.
+    /// QUOTE will be sent to Attestation Service to verify SGX's status.
+    /// For more information: https://api.trustedservices.intel.com/documents/sgx-attestation-api-spec.pdf
+    pub fn new(spid: &str, report_data: &sgx_report_data_t) -> Result<Self> {
+        let spid_vec = hex::decode(spid)?;
+        let mut id = [0; 16];
+        id.copy_from_slice(&spid_vec);
+        let spid: sgx_spid_t = sgx_spid_t { id };
+
+        let target_info = sgx_init_quote()?;
+        let report = sgx_tse::rsgx_create_report(&target_info, &report_data)
+            .map_err(|e| anyhow!("{}", e))?;
+        let quote = get_quote(report, &spid)?;
+
+        // Use base64-encoded QUOTE structure to communicate via defined API.
+        let encoded_quote = base64::encode(&quote);
+
+        Ok(RAService {
+            encoded_quote,
+        })
+    }
+
     pub fn remote_attestation(
+        &self,
         uri: &str,
         ias_api_key: &str,
-        quote: &str,
     ) -> Result<(AttestationReport, ReportSig)> {
         let uri: Uri = uri.parse().expect("Invalid uri");
-        let body = format!("{{\"isvEnclaveQuote\":\"{}\"}}\r\n", quote);
+        let body = format!("{{\"isvEnclaveQuote\":\"{}\"}}\r\n", &self.encoded_quote);
         let mut writer = Vec::new();
 
         let response = RAClient::new(&uri)
