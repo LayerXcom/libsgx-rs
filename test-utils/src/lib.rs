@@ -1,15 +1,12 @@
 #![no_std]
-
 #[macro_use]
 extern crate sgx_tstd as std;
-
-use std::vec::Vec;
-use std::string::String;
-
 #[macro_use]
 extern crate inventory;
 
 pub use test_utils_proc_macro::test_case;
+use std::vec::Vec;
+use std::string::String;
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Serialize, Deserialize, Debug)]
@@ -48,7 +45,52 @@ macro_rules! run_inventory_tests {
      () => {
          run_inventory_tests!(|_| true);
      };
- }
+}
+
+#[macro_export]
+macro_rules! run_tests {
+    (
+        $($f:expr),* $(,)?
+    ) => {
+        test_start()
+        let mut ntestcases: u64 = 0u64;
+        let mut failurecases: Vec<String> = Vec::new();
+        $(test(&mut ntestcases, &mut failurecases, $f, stringify!($f));)*
+        test_end(ntestcases, failurecases)
+    }
+}
+
+#[macro_export]
+macro_rules! check_all_passed {
+    (
+        $($f:expr),* $(,)?
+    ) => {
+        {
+            let mut v: Vec<bool> = Vec::new();
+            $(
+                v.push($f);
+            )*
+            v.iter().all(|&x| x)
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! should_panic {
+    ($fmt:expr) => {{
+        match std::panic::catch_unwind(|| $fmt).is_err() {
+            true => {
+                println!(
+                    "{} {} ... {}!",
+                    "testing_should_panic",
+                    stringify!($fmt),
+                    "\x1B[1;32mok\x1B[0m"
+                );
+            }
+            false => std::rt::begin_panic($fmt),
+        }
+    }};
+}
 
 #[allow(clippy::print_literal)]
 pub fn test<F, R>(ncases: &mut u64, failurecases: &mut Vec<String>, f: F, name: &str)
