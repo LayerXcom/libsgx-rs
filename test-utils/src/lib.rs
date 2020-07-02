@@ -52,11 +52,13 @@ macro_rules! run_tests {
     (
         $($f:expr),* $(,)?
     ) => {
-        test_start();
-        let mut ntestcases: u64 = 0u64;
-        let mut failurecases: Vec<String> = Vec::new();
-        $(test(&mut ntestcases, &mut failurecases, $f, stringify!($f));)*
-        test_end(ntestcases, failurecases)
+        {
+            test_start();
+            let mut ntestcases: u64 = 0u64;
+            let mut failurecases: Vec<String> = Vec::new();
+            $(test(&mut ntestcases, &mut failurecases, $f, stringify!($f));)*
+            test_end(ntestcases, failurecases)
+        }
     }
 }
 
