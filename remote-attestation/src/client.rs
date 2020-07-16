@@ -232,6 +232,10 @@ impl AttestationReport {
         &self.0[..]
     }
 
+    pub fn into_vec(self) -> Vec<u8> {
+        self.0
+    }
+
     pub fn as_json(&self) -> Result<Value> {
         serde_json::from_slice(&self.as_bytes()).map_err(Into::into)
     }
@@ -253,6 +257,10 @@ impl ReportSig {
 
     pub fn as_bytes(&self) -> &[u8] {
         &self.0[..]
+    }
+
+    pub fn into_vec(self) -> Vec<u8> {
+        self.0
     }
 }
 
